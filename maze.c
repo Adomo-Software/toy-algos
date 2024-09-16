@@ -1,4 +1,4 @@
-// vim:foldmethod=marker
+
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <math.h>
@@ -9,19 +9,17 @@ enum Block {
 	Wall = '#',
 	Path = ' ',
 	Been = 'B',
+	Dead = 'X',
 	Start = 'S',
 	End = 'E',
 };
 
 enum Direction {
+	Up = 0,
 	Right,
+	Down,
 	Left,
-	Up,
-	Down
 };
-
-
-// {{{
 
 typedef struct {
 	int x;
@@ -38,9 +36,9 @@ void vec_print(Vec vec) {
 	printf("%d %d\n", vec.x, vec.y);
 }
 
-void vec_go(Vec *vec, enum Direction* dir) {
-	*dir = *dir % 4;
-    switch(*dir) {
+void vec_go(Vec *vec, enum Direction dir) {
+	dir = dir % 4;
+    switch(dir) {
         case Left:
             vec->x -= 1;
             break;
@@ -56,7 +54,7 @@ void vec_go(Vec *vec, enum Direction* dir) {
     }
 }
 
-// }}}
+
 
 typedef struct {
 	int w;
@@ -103,43 +101,64 @@ void maze_print_jeff(Maze maze, Vec loc_jeff, enum Direction dir) {
 }
 enum Block vec_go_block
 	(Vec *vec, enum Direction dir, Maze maze) {
-	vec_go(vec, &dir);
+	vec_go(vec, dir);
 	return (enum Block)maze.data[vec->x][vec->y];
 }
 
-#include <unistd.h>
-void maze_find_path(Maze maze, Vec loc, enum Direction dir) {
-	Vec prev_loc = loc;
-	vec_go(&loc, &dir);
-	enum Block b = (enum Block)maze.data[loc.y][loc.x];
-	printf("'%c'\n", b);
-	vec_print(prev_loc);
-	vec_print(loc);
-	maze_print_jeff(maze, prev_loc, dir);
 
-	sleep(1);
+
+bool all_directions_tested(int tested_directions) {
+    return tested_directions == 0b1111;
+}
+
+int mark_direction_tested(int tested_directions, enum Direction dir) {
+    return tested_directions | (1 << dir);
+}
+
+#include <unistd.h>
+#include <assert.h>
+
+void maze_find_path(Maze maze, Vec loc, enum Direction dir, int tested_directions) {
+	Vec prev_loc = loc;
+	vec_go(&loc, dir);
+	enum Block b = (enum Block)maze.data[loc.y][loc.x];
+	printf("\033[H\033[J");
+	maze_print_jeff(maze, prev_loc, dir % 4);
+
+	usleep(50000);
+	tested_directions = mark_direction_tested(tested_directions, dir);
+
 	switch(b) {
+		case End:
+			printf("\033[H\033[J");
+			maze_print_jeff(maze, loc, dir % 4);
+			printf("'%c'\n", b);
+			vec_print(loc);
+			exit(0);
+			return;
+		case Path:
+			maze.data[prev_loc.y][prev_loc.x] = Been;
+			maze_find_path(maze, loc, 0, tested_directions);
+			/*return;*/
 		case Wall:
 		case Start:
 		case Been:
-			maze_find_path(maze, prev_loc, dir + 1);
-		case Path:
-			maze.data[prev_loc.y][prev_loc.x] = Been;
-			maze_find_path(maze, loc, dir + 1);
-		case End:
-			vec_print(loc);
-			return;
+			if (all_directions_tested(tested_directions)) {
+				maze.data[prev_loc.y][prev_loc.x] = Dead; // Jeff is dead
+				return;
+			}
+			maze_find_path(maze, prev_loc, (dir + 1) % 4, tested_directions);
 	}
 }
 
 int main (int argc, char *argv[]) {
-// {{{
+
 	ssize_t read;
 	FILE *stream;
 	char *line = NULL;
 	size_t len = 0;
 	ssize_t nread;
-	stream = fopen("zemaze", "r");
+	stream = fopen("themaze", "r");
 	if (stream == NULL) {
 		perror("fopen");
 		exit(EXIT_FAILURE);
@@ -193,6 +212,6 @@ int main (int argc, char *argv[]) {
 
 	Vec vec = {.x = 0, .y = 0};
 	vec_print(vec);
-	maze_find_path(maze, jeff_loc, 0);
+	maze_find_path(maze, jeff_loc, 0, 0);
 	return 0;
 }
